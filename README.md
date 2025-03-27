@@ -395,6 +395,181 @@ SELECT * FROM fn_my_permissions(NULL, 'DATABASE');
 
 ---
 
+# Real-World SQL Project Scenarios: Mastery in Practice
+---
+
+## 🔷 Project 1: Human Resources Analytics System
+
+### 🎯 Goal:
+Provide detailed reports, insights, and automation for HR operations using SQL.
+
+### 🧩 Tables:
+- `Employees(EmployeeID, FirstName, LastName, Salary, HireDate, ManagerID, DepartmentID)`
+- `Departments(DeptID, DeptName)`
+- `SalaryAudit(AuditID, EmployeeID, OldSalary, NewSalary, ChangedAt)`
+- `LeaveRequests(RequestID, EmployeeID, LeaveDate, Status)`
+
+### 🔧 Features & Queries
+
+#### ✅ 1. Get list of all employees and their departments
+```sql
+SELECT E.FirstName, E.LastName, D.DeptName
+FROM Employees E
+JOIN Departments D ON E.DepartmentID = D.DeptID;
+```
+
+#### ✅ 2. Top 3 highest paid employees per department
+```sql
+WITH RankedSalaries AS (
+  SELECT EmployeeID, DepartmentID, Salary,
+         RANK() OVER (PARTITION BY DepartmentID ORDER BY Salary DESC) AS rnk
+  FROM Employees
+)
+SELECT * FROM RankedSalaries WHERE rnk <= 3;
+```
+
+#### ✅ 3. Employee leave pattern using recursive CTE
+```sql
+WITH RecLeaves AS (
+  SELECT EmployeeID, LeaveDate, 1 AS LeaveStreak
+  FROM LeaveRequests
+  WHERE Status = 'Approved'
+
+  UNION ALL
+
+  SELECT L.EmployeeID, DATEADD(DAY, 1, R.LeaveDate), R.LeaveStreak + 1
+  FROM RecLeaves R
+  JOIN LeaveRequests L ON R.EmployeeID = L.EmployeeID
+                       AND L.LeaveDate = DATEADD(DAY, 1, R.LeaveDate)
+)
+SELECT * FROM RecLeaves;
+```
+
+#### ✅ 4. Salary change audit via trigger
+```sql
+CREATE TRIGGER trg_SalaryAudit
+ON Employees
+AFTER UPDATE
+AS
+BEGIN
+  INSERT INTO SalaryAudit (EmployeeID, OldSalary, NewSalary, ChangedAt)
+  SELECT d.EmployeeID, d.Salary, i.Salary, GETDATE()
+  FROM DELETED d JOIN INSERTED i ON d.EmployeeID = i.EmployeeID
+  WHERE d.Salary <> i.Salary;
+END;
+```
+
+---
+
+## 🟩 Project 2: E-Commerce Analytics Dashboard
+
+### 🎯 Goal:
+Track customer behavior, order trends, product performance, and financial insights.
+
+### 🧩 Tables:
+- `Customers(CustomerID, Name, Segment, CreatedDate)`
+- `Orders(OrderID, CustomerID, OrderDate, TotalAmount)`
+- `OrderItems(OrderID, ProductID, Quantity, Price)`
+- `Products(ProductID, Name, Price, CategoryID)`
+- `Categories(CategoryID, Name)`
+
+### 🔧 Features & Queries
+
+#### ✅ 1. Most valuable customers (top 10 spenders)
+```sql
+SELECT TOP 10 C.CustomerID, C.Name, SUM(O.TotalAmount) AS TotalSpent
+FROM Customers C
+JOIN Orders O ON C.CustomerID = O.CustomerID
+GROUP BY C.CustomerID, C.Name
+ORDER BY TotalSpent DESC;
+```
+
+#### ✅ 2. Monthly product leaderboard using CTE + RANK
+```sql
+WITH MonthlyRevenue AS (
+  SELECT ProductID, FORMAT(OrderDate, 'yyyy-MM') AS SaleMonth, SUM(Price * Quantity) AS Revenue
+  FROM Orders O
+  JOIN OrderItems OI ON O.OrderID = OI.OrderID
+  GROUP BY ProductID, FORMAT(OrderDate, 'yyyy-MM')
+),
+Ranked AS (
+  SELECT *, RANK() OVER (PARTITION BY SaleMonth ORDER BY Revenue DESC) AS Rank
+  FROM MonthlyRevenue
+)
+SELECT * FROM Ranked WHERE Rank = 1;
+```
+
+#### ✅ 3. Auto-prevent deletion of product with active orders
+```sql
+CREATE TRIGGER trg_ProtectProduct
+ON Products
+INSTEAD OF DELETE
+AS
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM OrderItems WHERE ProductID IN (SELECT ProductID FROM DELETED)
+  )
+    RAISERROR('Cannot delete product with existing sales.', 16, 1);
+  ELSE
+    DELETE FROM Products WHERE ProductID IN (SELECT ProductID FROM DELETED);
+END;
+```
+
+#### ✅ 4. Generate JSON report of each customer’s orders
+```sql
+SELECT CustomerID, Name,
+  (SELECT OrderID, OrderDate, TotalAmount
+   FROM Orders O WHERE O.CustomerID = C.CustomerID
+   FOR JSON PATH) AS OrdersJSON
+FROM Customers C;
+```
+
+---
+
+## 🟥 Project 3: Compliance & Audit Tracking System
+
+### 🎯 Goal:
+Build a secure SQL environment for internal audits, access logs, and temporal data tracking.
+
+### 🧩 Tables:
+- `Users(UserID, Username, Role)`
+- `UserLogins(LoginID, UserID, LoginTime)`
+- `ChangeLog(LogID, TableName, ChangeType, ChangedAt)`
+- `Products` (System-versioned temporal table)
+
+### 🔧 Features & Queries
+
+#### ✅ 1. Monitor login attempts and sessions
+```sql
+SELECT UserID, COUNT(*) AS LoginCount
+FROM UserLogins
+WHERE LoginTime > DATEADD(DAY, -30, GETDATE())
+GROUP BY UserID;
+```
+
+#### ✅ 2. Temporal query to recover deleted product data
+```sql
+SELECT * FROM Products
+FOR SYSTEM_TIME ALL
+WHERE ProductID = 101;
+```
+
+#### ✅ 3. Dynamic SQL to log sensitive queries
+```sql
+DECLARE @sql NVARCHAR(MAX) = 'SELECT * FROM Employees WHERE Salary > 100000';
+INSERT INTO ChangeLog(TableName, ChangeType, ChangedAt) VALUES ('Employees', 'Sensitive Query', GETDATE());
+EXEC sp_executesql @sql;
+```
+
+#### ✅ 4. Track user permission grants
+```sql
+SELECT * FROM fn_my_permissions(NULL, 'DATABASE');
+```
+
+---
+
+
+
 
 
 
