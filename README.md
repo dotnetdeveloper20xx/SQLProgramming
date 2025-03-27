@@ -395,40 +395,81 @@ SELECT * FROM fn_my_permissions(NULL, 'DATABASE');
 
 ---
 
-# Real-World SQL Project Scenarios: Mastery in Practice
+# Real-World SQL Project Scenarios (Projects 1–8 with Full Code)
+
+This master document includes eight full SQL projects. Each project provides:
+- 🎯 Project Goal
+- 🧩 Database Schema (CREATE TABLE scripts)
+- 🔧 Feature-wise SQL Commands
+- ⚙️ Stored Procedures, Triggers, Advanced Queries
+- 📊 Complex Reporting Scenarios
+
 ---
+
 
 ## 🔷 Project 1: Human Resources Analytics System
 
 ### 🎯 Goal:
-Provide detailed reports, insights, and automation for HR operations using SQL.
+Automate HR analytics including salary tracking, department mapping, and employee leave insights.
 
-### 🧩 Tables:
-- `Employees(EmployeeID, FirstName, LastName, Salary, HireDate, ManagerID, DepartmentID)`
-- `Departments(DeptID, DeptName)`
-- `SalaryAudit(AuditID, EmployeeID, OldSalary, NewSalary, ChangedAt)`
-- `LeaveRequests(RequestID, EmployeeID, LeaveDate, Status)`
-
-### 🔧 Features & Queries
-
-#### ✅ 1. Get list of all employees and their departments
+### 🧩 Schema
 ```sql
-SELECT E.FirstName, E.LastName, D.DeptName
-FROM Employees E
-JOIN Departments D ON E.DepartmentID = D.DeptID;
+CREATE TABLE Departments (
+  DeptID INT PRIMARY KEY,
+  DeptName VARCHAR(100)
+);
+
+CREATE TABLE Employees (
+  EmployeeID INT PRIMARY KEY,
+  FirstName VARCHAR(50),
+  LastName VARCHAR(50),
+  Salary DECIMAL(10,2),
+  HireDate DATE,
+  ManagerID INT,
+  DepartmentID INT FOREIGN KEY REFERENCES Departments(DeptID)
+);
+
+CREATE TABLE SalaryAudit (
+  AuditID INT IDENTITY PRIMARY KEY,
+  EmployeeID INT,
+  OldSalary DECIMAL(10,2),
+  NewSalary DECIMAL(10,2),
+  ChangedAt DATETIME DEFAULT GETDATE()
+);
+
+CREATE TABLE LeaveRequests (
+  RequestID INT PRIMARY KEY,
+  EmployeeID INT FOREIGN KEY REFERENCES Employees(EmployeeID),
+  LeaveDate DATE,
+  Status VARCHAR(20)
+);
 ```
 
-#### ✅ 2. Top 3 highest paid employees per department
+### 🔧 Trigger: Salary Change Audit
+```sql
+CREATE TRIGGER trg_SalaryAudit
+ON Employees
+AFTER UPDATE
+AS
+BEGIN
+  INSERT INTO SalaryAudit (EmployeeID, OldSalary, NewSalary)
+  SELECT d.EmployeeID, d.Salary, i.Salary
+  FROM DELETED d
+  JOIN INSERTED i ON d.EmployeeID = i.EmployeeID
+  WHERE d.Salary <> i.Salary;
+END;
+```
+
+### 📊 Report: Top 3 Earners per Department
 ```sql
 WITH RankedSalaries AS (
-  SELECT EmployeeID, DepartmentID, Salary,
-         RANK() OVER (PARTITION BY DepartmentID ORDER BY Salary DESC) AS rnk
+  SELECT *, RANK() OVER (PARTITION BY DepartmentID ORDER BY Salary DESC) AS rnk
   FROM Employees
 )
-SELECT * FROM RankedSalaries WHERE rnk <= 3;
+SELECT FirstName, LastName, Salary, DepartmentID FROM RankedSalaries WHERE rnk <= 3;
 ```
 
-#### ✅ 3. Employee leave pattern using recursive CTE
+### 🔁 Recursive CTE: Leave Streak
 ```sql
 WITH RecLeaves AS (
   SELECT EmployeeID, LeaveDate, 1 AS LeaveStreak
@@ -437,26 +478,11 @@ WITH RecLeaves AS (
 
   UNION ALL
 
-  SELECT L.EmployeeID, DATEADD(DAY, 1, R.LeaveDate), R.LeaveStreak + 1
-  FROM RecLeaves R
-  JOIN LeaveRequests L ON R.EmployeeID = L.EmployeeID
-                       AND L.LeaveDate = DATEADD(DAY, 1, R.LeaveDate)
+  SELECT L.EmployeeID, L.LeaveDate, R.LeaveStreak + 1
+  FROM LeaveRequests L
+  JOIN RecLeaves R ON L.EmployeeID = R.EmployeeID AND L.LeaveDate = DATEADD(DAY, 1, R.LeaveDate)
 )
 SELECT * FROM RecLeaves;
-```
-
-#### ✅ 4. Salary change audit via trigger
-```sql
-CREATE TRIGGER trg_SalaryAudit
-ON Employees
-AFTER UPDATE
-AS
-BEGIN
-  INSERT INTO SalaryAudit (EmployeeID, OldSalary, NewSalary, ChangedAt)
-  SELECT d.EmployeeID, d.Salary, i.Salary, GETDATE()
-  FROM DELETED d JOIN INSERTED i ON d.EmployeeID = i.EmployeeID
-  WHERE d.Salary <> i.Salary;
-END;
 ```
 
 ---
@@ -464,32 +490,53 @@ END;
 ## 🟩 Project 2: E-Commerce Analytics Dashboard
 
 ### 🎯 Goal:
-Track customer behavior, order trends, product performance, and financial insights.
+Provide insights into customer spend, product performance, and invoice generation.
 
-### 🧩 Tables:
-- `Customers(CustomerID, Name, Segment, CreatedDate)`
-- `Orders(OrderID, CustomerID, OrderDate, TotalAmount)`
-- `OrderItems(OrderID, ProductID, Quantity, Price)`
-- `Products(ProductID, Name, Price, CategoryID)`
-- `Categories(CategoryID, Name)`
-
-### 🔧 Features & Queries
-
-#### ✅ 1. Most valuable customers (top 10 spenders)
+### 🧩 Schema
 ```sql
-SELECT TOP 10 C.CustomerID, C.Name, SUM(O.TotalAmount) AS TotalSpent
-FROM Customers C
-JOIN Orders O ON C.CustomerID = O.CustomerID
-GROUP BY C.CustomerID, C.Name
-ORDER BY TotalSpent DESC;
+CREATE TABLE Customers (
+  CustomerID INT PRIMARY KEY,
+  Name VARCHAR(100),
+  Segment VARCHAR(50),
+  CreatedDate DATE
+);
+
+CREATE TABLE Products (
+  ProductID INT PRIMARY KEY,
+  Name VARCHAR(100),
+  Price DECIMAL(10,2),
+  CategoryID INT
+);
+
+CREATE TABLE Orders (
+  OrderID INT PRIMARY KEY,
+  CustomerID INT FOREIGN KEY REFERENCES Customers(CustomerID),
+  OrderDate DATE,
+  TotalAmount DECIMAL(10,2)
+);
+
+CREATE TABLE OrderItems (
+  OrderID INT FOREIGN KEY REFERENCES Orders(OrderID),
+  ProductID INT FOREIGN KEY REFERENCES Products(ProductID),
+  Quantity INT,
+  Price DECIMAL(10,2)
+);
 ```
 
-#### ✅ 2. Monthly product leaderboard using CTE + RANK
+### 🔧 JSON: Customer Order Report
+```sql
+SELECT CustomerID, Name,
+  (SELECT OrderID, OrderDate, TotalAmount
+   FROM Orders O WHERE O.CustomerID = C.CustomerID
+   FOR JSON PATH) AS OrdersJSON
+FROM Customers C;
+```
+
+### 📊 Monthly Product Leaderboard
 ```sql
 WITH MonthlyRevenue AS (
-  SELECT ProductID, FORMAT(OrderDate, 'yyyy-MM') AS SaleMonth, SUM(Price * Quantity) AS Revenue
-  FROM Orders O
-  JOIN OrderItems OI ON O.OrderID = OI.OrderID
+  SELECT ProductID, FORMAT(OrderDate, 'yyyy-MM') AS SaleMonth, SUM(Quantity * Price) AS Revenue
+  FROM Orders O JOIN OrderItems OI ON O.OrderID = OI.OrderID
   GROUP BY ProductID, FORMAT(OrderDate, 'yyyy-MM')
 ),
 Ranked AS (
@@ -499,7 +546,7 @@ Ranked AS (
 SELECT * FROM Ranked WHERE Rank = 1;
 ```
 
-#### ✅ 3. Auto-prevent deletion of product with active orders
+### ⚙️ Trigger: Prevent Product Deletion
 ```sql
 CREATE TRIGGER trg_ProtectProduct
 ON Products
@@ -515,236 +562,63 @@ BEGIN
 END;
 ```
 
-#### ✅ 4. Generate JSON report of each customer’s orders
-```sql
-SELECT CustomerID, Name,
-  (SELECT OrderID, OrderDate, TotalAmount
-   FROM Orders O WHERE O.CustomerID = C.CustomerID
-   FOR JSON PATH) AS OrdersJSON
-FROM Customers C;
-```
-
 ---
+
+
+
+
 
 ## 🟥 Project 3: Compliance & Audit Tracking System
 
 ### 🎯 Goal:
-Build a secure SQL environment for internal audits, access logs, and temporal data tracking.
+Secure access logs and monitor user activities.
 
-### 🧩 Tables:
-- `Users(UserID, Username, Role)`
-- `UserLogins(LoginID, UserID, LoginTime)`
-- `ChangeLog(LogID, TableName, ChangeType, ChangedAt)`
-- `Products` (System-versioned temporal table)
-
-### 🔧 Features & Queries
-
-#### ✅ 1. Monitor login attempts and sessions
+### 🧩 Schema
 ```sql
+CREATE TABLE Users (
+  UserID INT PRIMARY KEY,
+  Username VARCHAR(50),
+  Role VARCHAR(50)
+);
+
+CREATE TABLE UserLogins (
+  LoginID INT PRIMARY KEY,
+  UserID INT FOREIGN KEY REFERENCES Users(UserID),
+  LoginTime DATETIME
+);
+
+CREATE TABLE ChangeLog (
+  LogID INT IDENTITY PRIMARY KEY,
+  TableName VARCHAR(100),
+  ChangeType VARCHAR(50),
+  ChangedAt DATETIME DEFAULT GETDATE()
+);
+
+CREATE TABLE Products (
+  ProductID INT PRIMARY KEY,
+  Name VARCHAR(100),
+  Price DECIMAL(10,2),
+  ValidFrom DATETIME2 GENERATED ALWAYS AS ROW START,
+  ValidTo DATETIME2 GENERATED ALWAYS AS ROW END,
+  PERIOD FOR SYSTEM_TIME (ValidFrom, ValidTo)
+) WITH (SYSTEM_VERSIONING = ON);
+```
+
+### 🔧 Features
+```sql
+-- Track logins in the past month
 SELECT UserID, COUNT(*) AS LoginCount
 FROM UserLogins
 WHERE LoginTime > DATEADD(DAY, -30, GETDATE())
 GROUP BY UserID;
-```
 
-#### ✅ 2. Temporal query to recover deleted product data
-```sql
-SELECT * FROM Products
-FOR SYSTEM_TIME ALL
-WHERE ProductID = 101;
-```
+-- Recover deleted data using SYSTEM_VERSIONING
+SELECT * FROM Products FOR SYSTEM_TIME ALL WHERE ProductID = 101;
 
-#### ✅ 3. Dynamic SQL to log sensitive queries
-```sql
-DECLARE @sql NVARCHAR(MAX) = 'SELECT * FROM Employees WHERE Salary > 100000';
-INSERT INTO ChangeLog(TableName, ChangeType, ChangedAt) VALUES ('Employees', 'Sensitive Query', GETDATE());
+-- Log sensitive queries
+DECLARE @sql NVARCHAR(MAX) = 'SELECT * FROM Users WHERE Role = ''Admin''';
+INSERT INTO ChangeLog (TableName, ChangeType) VALUES ('Users', 'Sensitive Query');
 EXEC sp_executesql @sql;
-```
-
-#### ✅ 4. Track user permission grants
-```sql
-SELECT * FROM fn_my_permissions(NULL, 'DATABASE');
-```
-
----
-
-
-# Real-World SQL Project Scenarios: Mastery in Practice
-
-This document demonstrates how to apply core and advanced SQL concepts in end-to-end, real-life projects. Each project includes:
-- 🎯 **Goal**
-- 🧩 **Database Schema**
-- 🔧 **Feature-specific SQL examples**
-- 🔁 Use of foundational to expert-level commands
-
----
-
-## 🔷 Project 1: Human Resources Analytics System
-
-### 🎯 Goal:
-Provide detailed reports, insights, and automation for HR operations using SQL.
-
-### 🧩 Tables:
-- `Employees(EmployeeID, FirstName, LastName, Salary, HireDate, ManagerID, DepartmentID)`
-- `Departments(DeptID, DeptName)`
-- `SalaryAudit(AuditID, EmployeeID, OldSalary, NewSalary, ChangedAt)`
-- `LeaveRequests(RequestID, EmployeeID, LeaveDate, Status)`
-
-### 🔧 Features & Queries
-
-#### ✅ 1. Get list of all employees and their departments
-```sql
-SELECT E.FirstName, E.LastName, D.DeptName
-FROM Employees E
-JOIN Departments D ON E.DepartmentID = D.DeptID;
-```
-
-#### ✅ 2. Top 3 highest paid employees per department
-```sql
-WITH RankedSalaries AS (
-  SELECT EmployeeID, DepartmentID, Salary,
-         RANK() OVER (PARTITION BY DepartmentID ORDER BY Salary DESC) AS rnk
-  FROM Employees
-)
-SELECT * FROM RankedSalaries WHERE rnk <= 3;
-```
-
-#### ✅ 3. Employee leave pattern using recursive CTE
-```sql
-WITH RecLeaves AS (
-  SELECT EmployeeID, LeaveDate, 1 AS LeaveStreak
-  FROM LeaveRequests
-  WHERE Status = 'Approved'
-
-  UNION ALL
-
-  SELECT L.EmployeeID, DATEADD(DAY, 1, R.LeaveDate), R.LeaveStreak + 1
-  FROM RecLeaves R
-  JOIN LeaveRequests L ON R.EmployeeID = L.EmployeeID
-                       AND L.LeaveDate = DATEADD(DAY, 1, R.LeaveDate)
-)
-SELECT * FROM RecLeaves;
-```
-
-#### ✅ 4. Salary change audit via trigger
-```sql
-CREATE TRIGGER trg_SalaryAudit
-ON Employees
-AFTER UPDATE
-AS
-BEGIN
-  INSERT INTO SalaryAudit (EmployeeID, OldSalary, NewSalary, ChangedAt)
-  SELECT d.EmployeeID, d.Salary, i.Salary, GETDATE()
-  FROM DELETED d JOIN INSERTED i ON d.EmployeeID = i.EmployeeID
-  WHERE d.Salary <> i.Salary;
-END;
-```
-
----
-
-## 🟩 Project 2: E-Commerce Analytics Dashboard
-
-### 🎯 Goal:
-Track customer behavior, order trends, product performance, and financial insights.
-
-### 🧩 Tables:
-- `Customers(CustomerID, Name, Segment, CreatedDate)`
-- `Orders(OrderID, CustomerID, OrderDate, TotalAmount)`
-- `OrderItems(OrderID, ProductID, Quantity, Price)`
-- `Products(ProductID, Name, Price, CategoryID)`
-- `Categories(CategoryID, Name)`
-
-### 🔧 Features & Queries
-
-#### ✅ 1. Most valuable customers (top 10 spenders)
-```sql
-SELECT TOP 10 C.CustomerID, C.Name, SUM(O.TotalAmount) AS TotalSpent
-FROM Customers C
-JOIN Orders O ON C.CustomerID = O.CustomerID
-GROUP BY C.CustomerID, C.Name
-ORDER BY TotalSpent DESC;
-```
-
-#### ✅ 2. Monthly product leaderboard using CTE + RANK
-```sql
-WITH MonthlyRevenue AS (
-  SELECT ProductID, FORMAT(OrderDate, 'yyyy-MM') AS SaleMonth, SUM(Price * Quantity) AS Revenue
-  FROM Orders O
-  JOIN OrderItems OI ON O.OrderID = OI.OrderID
-  GROUP BY ProductID, FORMAT(OrderDate, 'yyyy-MM')
-),
-Ranked AS (
-  SELECT *, RANK() OVER (PARTITION BY SaleMonth ORDER BY Revenue DESC) AS Rank
-  FROM MonthlyRevenue
-)
-SELECT * FROM Ranked WHERE Rank = 1;
-```
-
-#### ✅ 3. Auto-prevent deletion of product with active orders
-```sql
-CREATE TRIGGER trg_ProtectProduct
-ON Products
-INSTEAD OF DELETE
-AS
-BEGIN
-  IF EXISTS (
-    SELECT 1 FROM OrderItems WHERE ProductID IN (SELECT ProductID FROM DELETED)
-  )
-    RAISERROR('Cannot delete product with existing sales.', 16, 1);
-  ELSE
-    DELETE FROM Products WHERE ProductID IN (SELECT ProductID FROM DELETED);
-END;
-```
-
-#### ✅ 4. Generate JSON report of each customer’s orders
-```sql
-SELECT CustomerID, Name,
-  (SELECT OrderID, OrderDate, TotalAmount
-   FROM Orders O WHERE O.CustomerID = C.CustomerID
-   FOR JSON PATH) AS OrdersJSON
-FROM Customers C;
-```
-
----
-
-## 🟥 Project 3: Compliance & Audit Tracking System
-
-### 🎯 Goal:
-Build a secure SQL environment for internal audits, access logs, and temporal data tracking.
-
-### 🧩 Tables:
-- `Users(UserID, Username, Role)`
-- `UserLogins(LoginID, UserID, LoginTime)`
-- `ChangeLog(LogID, TableName, ChangeType, ChangedAt)`
-- `Products` (System-versioned temporal table)
-
-### 🔧 Features & Queries
-
-#### ✅ 1. Monitor login attempts and sessions
-```sql
-SELECT UserID, COUNT(*) AS LoginCount
-FROM UserLogins
-WHERE LoginTime > DATEADD(DAY, -30, GETDATE())
-GROUP BY UserID;
-```
-
-#### ✅ 2. Temporal query to recover deleted product data
-```sql
-SELECT * FROM Products
-FOR SYSTEM_TIME ALL
-WHERE ProductID = 101;
-```
-
-#### ✅ 3. Dynamic SQL to log sensitive queries
-```sql
-DECLARE @sql NVARCHAR(MAX) = 'SELECT * FROM Employees WHERE Salary > 100000';
-INSERT INTO ChangeLog(TableName, ChangeType, ChangedAt) VALUES ('Employees', 'Sensitive Query', GETDATE());
-EXEC sp_executesql @sql;
-```
-
-#### ✅ 4. Track user permission grants
-```sql
-SELECT * FROM fn_my_permissions(NULL, 'DATABASE');
 ```
 
 ---
@@ -752,50 +626,61 @@ SELECT * FROM fn_my_permissions(NULL, 'DATABASE');
 ## 🟦 Project 4: Inventory & Warehouse Management
 
 ### 🎯 Goal:
-Enable full tracking of stock levels, supplier restocks, and product movements.
+Manage stock levels, movements, and restocking workflows.
 
-### 🧩 Tables:
-- `Inventory(ProductID, QuantityInStock, ReorderLevel)`
-- `Suppliers(SupplierID, Name, Country)`
-- `RestockEvents(EventID, ProductID, SupplierID, QuantityAdded, RestockDate)`
-- `InventoryMovements(MovementID, ProductID, MovementType, Quantity, MovementDate)`
-
-### 🔧 Features & Queries
-
-#### ✅ 1. Detect products below reorder level
+### 🧩 Schema
 ```sql
-SELECT ProductID, QuantityInStock
-FROM Inventory
-WHERE QuantityInStock < ReorderLevel;
+CREATE TABLE Inventory (
+  ProductID INT PRIMARY KEY,
+  QuantityInStock INT,
+  ReorderLevel INT
+);
+
+CREATE TABLE Suppliers (
+  SupplierID INT PRIMARY KEY,
+  Name VARCHAR(100),
+  Country VARCHAR(50)
+);
+
+CREATE TABLE RestockEvents (
+  EventID INT PRIMARY KEY,
+  ProductID INT,
+  SupplierID INT,
+  QuantityAdded INT,
+  RestockDate DATE
+);
+
+CREATE TABLE InventoryMovements (
+  MovementID INT PRIMARY KEY,
+  ProductID INT,
+  MovementType VARCHAR(10),
+  Quantity INT,
+  MovementDate DATE
+);
 ```
 
-#### ✅ 2. Total restock quantity per supplier
+### 🔧 Features
 ```sql
-SELECT SupplierID, SUM(QuantityAdded) AS TotalRestocked
-FROM RestockEvents
-GROUP BY SupplierID;
-```
+-- Products below reorder level
+SELECT ProductID, QuantityInStock FROM Inventory WHERE QuantityInStock < ReorderLevel;
 
-#### ✅ 3. View product movement history (in/out)
-```sql
-SELECT ProductID, MovementType, SUM(Quantity) AS TotalQty
-FROM InventoryMovements
-GROUP BY ProductID, MovementType;
-```
+-- Total restock per supplier
+SELECT SupplierID, SUM(QuantityAdded) AS Total FROM RestockEvents GROUP BY SupplierID;
 
-#### ✅ 4. Automatically prevent overselling via trigger
-```sql
+-- Inventory movement breakdown
+SELECT ProductID, MovementType, SUM(Quantity) AS Qty FROM InventoryMovements GROUP BY ProductID, MovementType;
+
+-- Prevent oversell trigger
 CREATE TRIGGER trg_PreventOversell
 ON InventoryMovements
 INSTEAD OF INSERT
 AS
 BEGIN
   IF EXISTS (
-    SELECT 1 FROM INSERTED I
-    JOIN Inventory Inv ON I.ProductID = Inv.ProductID
+    SELECT 1 FROM INSERTED I JOIN Inventory Inv ON I.ProductID = Inv.ProductID
     WHERE I.MovementType = 'OUT' AND I.Quantity > Inv.QuantityInStock
   )
-    RAISERROR('Cannot move out more items than in stock.', 16, 1);
+    RAISERROR('Insufficient inventory.', 16, 1);
   ELSE
     INSERT INTO InventoryMovements SELECT * FROM INSERTED;
 END;
@@ -803,38 +688,206 @@ END;
 
 ---
 
+## 🏥 Project 5: Healthcare Records and Appointments
+
+### 🎯 Goal:
+Track patient visits, doctor performance, and treatment history.
+
+### 🧩 Schema
+```sql
+CREATE TABLE Patients (
+  PatientID INT PRIMARY KEY,
+  Name VARCHAR(100),
+  DOB DATE,
+  Gender CHAR(1)
+);
+
+CREATE TABLE Doctors (
+  DoctorID INT PRIMARY KEY,
+  Name VARCHAR(100),
+  Specialty VARCHAR(100)
+);
+
+CREATE TABLE Appointments (
+  AppointmentID INT PRIMARY KEY,
+  PatientID INT,
+  DoctorID INT,
+  VisitDate DATE,
+  Diagnosis VARCHAR(255)
+);
+
+CREATE TABLE Prescriptions (
+  PrescriptionID INT PRIMARY KEY,
+  AppointmentID INT,
+  Medication VARCHAR(100),
+  Dosage VARCHAR(50)
+);
+```
+
+### 🔧 Features
+```sql
+-- Doctor monthly visit average
+SELECT DoctorID, COUNT(*) / 12.0 AS AvgMonthlyVisits
+FROM Appointments
+GROUP BY DoctorID;
+
+-- Patient record in JSON
+SELECT P.PatientID, P.Name,
+  (SELECT A.VisitDate, A.Diagnosis, PR.Medication, PR.Dosage
+   FROM Appointments A
+   JOIN Prescriptions PR ON A.AppointmentID = PR.AppointmentID
+   WHERE A.PatientID = P.PatientID
+   FOR JSON PATH) AS MedicalHistory
+FROM Patients P;
+```
+
+---
+
+## 🏦 Project 6: Banking Transactions & Fraud Detection
+
+### 🎯 Goal:
+Track financial transactions and detect suspicious behavior.
+
+### 🧩 Schema
+```sql
+CREATE TABLE Accounts (
+  AccountID INT PRIMARY KEY,
+  CustomerID INT,
+  Balance DECIMAL(12,2)
+);
+
+CREATE TABLE Transactions (
+  TransactionID INT PRIMARY KEY,
+  AccountID INT,
+  Type VARCHAR(10),
+  Amount DECIMAL(10,2),
+  TransactionDate DATE
+);
+```
+
+### 🔧 Features
+```sql
+-- Running balance
+SELECT AccountID, TransactionDate, SUM(Amount) OVER (PARTITION BY AccountID ORDER BY TransactionDate) AS RunningBalance
+FROM Transactions;
+
+-- Flag large withdrawals
+CREATE TRIGGER trg_LargeWithdrawal
+ON Transactions
+AFTER INSERT
+AS
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM INSERTED WHERE Type = 'Withdrawal' AND Amount > 10000
+  )
+    INSERT INTO ChangeLog (TableName, ChangeType) VALUES ('Transactions', 'HighValue Withdrawal');
+END;
+```
+
+---
+
+## 💳 Project 7: Subscription Billing Platform
+
+### 🎯 Goal:
+Manage invoices, payments, and subscription lifecycle.
+
+### 🧩 Schema
+```sql
+CREATE TABLE Users (
+  UserID INT PRIMARY KEY,
+  Name VARCHAR(100),
+  PlanID INT,
+  SignupDate DATE,
+  IsActive BIT
+);
+
+CREATE TABLE Plans (
+  PlanID INT PRIMARY KEY,
+  PlanName VARCHAR(50),
+  MonthlyFee DECIMAL(8,2)
+);
+
+CREATE TABLE Invoices (
+  InvoiceID INT PRIMARY KEY,
+  UserID INT,
+  InvoiceDate DATE,
+  Amount DECIMAL(8,2)
+);
+
+CREATE TABLE Payments (
+  PaymentID INT PRIMARY KEY,
+  InvoiceID INT,
+  PaymentDate DATE,
+  PaymentAmount DECIMAL(8,2)
+);
+```
+
+### 🔧 Features
+```sql
+-- Monthly recurring revenue
+SELECT SUM(P.MonthlyFee) AS MRR
+FROM Users U
+JOIN Plans P ON U.PlanID = P.PlanID
+WHERE U.IsActive = 1;
+
+-- JSON report of all invoices and payments
+SELECT U.UserID, U.Name,
+  (SELECT InvoiceDate, Amount,
+          (SELECT PaymentDate, PaymentAmount FROM Payments WHERE InvoiceID = I.InvoiceID FOR JSON PATH)
+   FROM Invoices I WHERE I.UserID = U.UserID FOR JSON PATH) AS BillingHistory
+FROM Users U;
+```
+
+---
 
 ## 🧮 Project 8: Loan Origination & Credit Scoring
 
 ### 🎯 Goal:
-Track loan applications, evaluate credit scores, and monitor default risk.
+Evaluate applicant creditworthiness and track loan repayment.
 
-### 🧩 Tables:
-- `Applicants(ApplicantID, Name, DOB, CreditScore)`
-- `Loans(LoanID, ApplicantID, LoanAmount, InterestRate, StartDate, Status)`
-- `Payments(PaymentID, LoanID, PaymentDate, AmountPaid)`
-- `CreditBureaus(ApplicantID, Score, ReportDate)`
-
-### 🔧 Features & Queries
-
-#### ✅ 1. Find average credit score by age group
+### 🧩 Schema
 ```sql
+CREATE TABLE Applicants (
+  ApplicantID INT PRIMARY KEY,
+  Name VARCHAR(100),
+  DOB DATE,
+  CreditScore INT
+);
+
+CREATE TABLE Loans (
+  LoanID INT PRIMARY KEY,
+  ApplicantID INT,
+  LoanAmount DECIMAL(12,2),
+  InterestRate DECIMAL(5,2),
+  StartDate DATE,
+  Status VARCHAR(20)
+);
+
+CREATE TABLE Payments (
+  PaymentID INT PRIMARY KEY,
+  LoanID INT,
+  PaymentDate DATE,
+  AmountPaid DECIMAL(10,2)
+);
+```
+
+### 🔧 Features
+```sql
+-- Average credit score by age group
 SELECT 
   CASE 
     WHEN DATEDIFF(YEAR, DOB, GETDATE()) < 30 THEN 'Under 30'
-    WHEN DATEDIFF(YEAR, DOB, GETDATE()) BETWEEN 30 AND 50 THEN '30-50'
+    WHEN DATEDIFF(YEAR, DOB, GETDATE()) BETWEEN 30 AND 50 THEN '30–50'
     ELSE '50+' END AS AgeGroup,
   AVG(CreditScore) AS AvgScore
 FROM Applicants
 GROUP BY 
   CASE 
     WHEN DATEDIFF(YEAR, DOB, GETDATE()) < 30 THEN 'Under 30'
-    WHEN DATEDIFF(YEAR, DOB, GETDATE()) BETWEEN 30 AND 50 THEN '30-50'
+    WHEN DATEDIFF(YEAR, DOB, GETDATE()) BETWEEN 30 AND 50 THEN '30–50'
     ELSE '50+' END;
-```
 
-#### ✅ 2. Calculate total payments and balance for each loan
-```sql
+-- Total paid and remaining loan balance
 SELECT L.LoanID, L.LoanAmount, SUM(P.AmountPaid) AS TotalPaid,
        L.LoanAmount - SUM(P.AmountPaid) AS RemainingBalance
 FROM Loans L
@@ -842,23 +895,6 @@ JOIN Payments P ON L.LoanID = P.LoanID
 GROUP BY L.LoanID, L.LoanAmount;
 ```
 
-#### ✅ 3. Detect applicants with missed payments
-```sql
-SELECT L.LoanID, A.Name
-FROM Loans L
-JOIN Applicants A ON L.ApplicantID = A.ApplicantID
-WHERE L.LoanID NOT IN (
-  SELECT DISTINCT LoanID FROM Payments
-  WHERE PaymentDate > DATEADD(MONTH, -1, GETDATE())
-);
-```
-
 ---
-
-
-
-
-
-
 
 
