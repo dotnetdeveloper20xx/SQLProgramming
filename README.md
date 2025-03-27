@@ -803,15 +803,59 @@ END;
 
 ---
 
-✅ These projects help reinforce your mastery of SQL by combining foundational and advanced features across real-world domains.
 
-Would you like additional projects for:
-- Subscription Billing
-- Healthcare Records
-- Banking Transactions
-- Loan Origination & Credit Scoring?
+## 🧮 Project 8: Loan Origination & Credit Scoring
 
-Let’s build them together!
+### 🎯 Goal:
+Track loan applications, evaluate credit scores, and monitor default risk.
+
+### 🧩 Tables:
+- `Applicants(ApplicantID, Name, DOB, CreditScore)`
+- `Loans(LoanID, ApplicantID, LoanAmount, InterestRate, StartDate, Status)`
+- `Payments(PaymentID, LoanID, PaymentDate, AmountPaid)`
+- `CreditBureaus(ApplicantID, Score, ReportDate)`
+
+### 🔧 Features & Queries
+
+#### ✅ 1. Find average credit score by age group
+```sql
+SELECT 
+  CASE 
+    WHEN DATEDIFF(YEAR, DOB, GETDATE()) < 30 THEN 'Under 30'
+    WHEN DATEDIFF(YEAR, DOB, GETDATE()) BETWEEN 30 AND 50 THEN '30-50'
+    ELSE '50+' END AS AgeGroup,
+  AVG(CreditScore) AS AvgScore
+FROM Applicants
+GROUP BY 
+  CASE 
+    WHEN DATEDIFF(YEAR, DOB, GETDATE()) < 30 THEN 'Under 30'
+    WHEN DATEDIFF(YEAR, DOB, GETDATE()) BETWEEN 30 AND 50 THEN '30-50'
+    ELSE '50+' END;
+```
+
+#### ✅ 2. Calculate total payments and balance for each loan
+```sql
+SELECT L.LoanID, L.LoanAmount, SUM(P.AmountPaid) AS TotalPaid,
+       L.LoanAmount - SUM(P.AmountPaid) AS RemainingBalance
+FROM Loans L
+JOIN Payments P ON L.LoanID = P.LoanID
+GROUP BY L.LoanID, L.LoanAmount;
+```
+
+#### ✅ 3. Detect applicants with missed payments
+```sql
+SELECT L.LoanID, A.Name
+FROM Loans L
+JOIN Applicants A ON L.ApplicantID = A.ApplicantID
+WHERE L.LoanID NOT IN (
+  SELECT DISTINCT LoanID FROM Payments
+  WHERE PaymentDate > DATEADD(MONTH, -1, GETDATE())
+);
+```
+
+---
+
+
 
 
 
